@@ -4,6 +4,8 @@
 
 #define TRIGGER_DISTANCE 2000 // milimeters
 
+//#define ENABLE_CALIBRATION
+
 static const uint8_t INT_PIN = 4; // Set to 0 for polling
 static const uint8_t LPN_PIN =  23;
 
@@ -146,6 +148,7 @@ void setup(void)
 
     _sensor.begin();
 
+#ifdef ENABLE_CALIBRATION
     int calibrated = 0;
 
     digitalWrite(15,HIGH);
@@ -171,8 +174,12 @@ void setup(void)
     configureZones();
 
     digitalWrite(2,HIGH); // Turn on builtin blue led when the sensor starts working
+#else
+    for(int i=0;i<16;i++){
+        zone_th[i] = TRIGGER_DISTANCE;
+    }
+#endif
 }
-
 void loop(void)
 {
     if (INT_PIN == 0 || _gotInterrupt) {
