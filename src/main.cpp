@@ -2,17 +2,17 @@
 #include "vl53l5cx_arduino.h"
 #include "debugger.hpp"
 
-#define TRIGGER_DISTANCE 2000 // milimeters
-
+#define TRIGGER_DISTANCE 1000 // milimeters
+#define MINIMAL_PRINT
 //#define ENABLE_CALIBRATION
 
 static const uint8_t INT_PIN = 4; // Set to 0 for polling
 static const uint8_t LPN_PIN =  23;
 
 // Set to 0 for continuous mode
-static const uint8_t INTEGRAL_TIME_MS = 0; // The integration time + 1 ms overhead must be lower than the measurement period
+static const uint8_t INTEGRAL_TIME_MS = 30; // The integration time + 1 ms overhead must be lower than the measurement period
 
-static VL53L5CX_Arduino _sensor(LPN_PIN, INTEGRAL_TIME_MS, VL53L5CX::RES_4X4_HZ_5);
+static VL53L5CX_Arduino _sensor(LPN_PIN, INTEGRAL_TIME_MS, VL53L5CX::RES_4X4_HZ_30);
 
 static volatile bool _gotInterrupt;
 
@@ -99,17 +99,19 @@ void configureZones(){
     Debugger::printf("Entry zone: %d, Exit zone: %d\n\n\n\r",entry_zone,exit_zone);
 }
 void printData(){
-    // Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[3],distance_buffer[2],distance_buffer[1],distance_buffer[0]);
-    // Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[7],distance_buffer[6],distance_buffer[5],distance_buffer[4]);
-    // Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[11],distance_buffer[10],distance_buffer[9],distance_buffer[8]);
-    // Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[15],distance_buffer[14],distance_buffer[13],distance_buffer[12]);
+#ifndef MINIMAL_PRINT
+    Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[3],distance_buffer[2],distance_buffer[1],distance_buffer[0]);
+    Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[7],distance_buffer[6],distance_buffer[5],distance_buffer[4]);
+    Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[11],distance_buffer[10],distance_buffer[9],distance_buffer[8]);
+    Debugger::printf("%4d  %4d  %4d  %4d\n\r",distance_buffer[15],distance_buffer[14],distance_buffer[13],distance_buffer[12]);
+#endif
     Debugger::printf("Active zones: ");
         for(int i=0; i<4; i++){
             printf("%d ",zone_trig[i]);
         }
         printf("\n");
 }
-void printDataAlt(){
+void printDataAlt(){ // Alternative printing function
     for (auto i=0; i<_sensor.getPixelCount(); i++) {
 
             // Print per zone results 
@@ -213,7 +215,9 @@ void loop(void)
             entry_set = 0;
             exit_set = 0;
         }
+#ifndef MINIMAL_PRINT
         printf("Number of people: %d \n",people_nr);
+#endif
         if(people_nr > 0){
             digitalWrite(15,HIGH);
         }
