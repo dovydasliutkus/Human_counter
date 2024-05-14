@@ -1,10 +1,14 @@
+#include <Arduino.h>
 #include <Wire.h>
 #include "vl53l5cx_arduino.h"
 #include "debugger.hpp"
+#include <esp_now.h>
+#include<esp_wifi.h>
+#include <WiFi.h>
 
-#define TRIGGER_DISTANCE 1000 // milimeters
+#define TRIGGER_DISTANCE 1500 // milimeters
 #define MINIMAL_PRINT
-//#define ENABLE_CALIBRATION
+#define ENABLE_CALIBRATION
 
 static const uint8_t INT_PIN = 4; // Set to 0 for polling
 static const uint8_t LPN_PIN =  23;
@@ -20,11 +24,52 @@ int distance_buffer[16];
 int zone_th[16];
 int zone_trig[4];
 
-int people_nr = 0;
 int entry_set, exit_set;
 // Initialize entry_zone and exit_zone with worst-case values
 int entry_zone = 1;
 int exit_zone = 2;
+
+
+// ESP-NOW CODE
+uint8_t broadcastAddress[] = {0xFC, 0xB4, 0x67, 0x16, 0xE9, 0x74};
+
+struct people{ 
+  int boardID;
+  int peopleNr;
+}peopleData;
+
+// Create peer interface
+esp_now_peer_info_t peerInfo;
+
+int error_count = 0;
+
+// Insert your SSID
+constexpr char WIFI_SSID[] = "Dovydoo";
+// For matching wifi channel with the one used for webserver
+int32_t getWiFiChannel(const char *ssid) {
+  if (int32_t n = WiFi.scanNetworks()) {
+      for (uint8_t i=0; i<n; i++) {
+          if (!strcmp(ssid, WiFi.SSID(i).c_str())) {
+              return WiFi.channel(i);
+          }
+      }
+  }
+  return 0;
+}
+
+// callback when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  if(status ==ESP_NOW_SEND_SUCCESS){
+      Serial.println("Delivery Success");
+    }
+    else{
+      error_count++;
+      Serial.println("Delivery Fail");
+    }
+}
+
+// END of ESP-NOW code
 
 static void interruptHandler() 
 {
@@ -137,6 +182,30 @@ void setup(void)
     Serial.begin(115200);
     Debugger::printf("Serial begun!\n");
 
+    peopleData.boardID = 1; // Set board ID
+    WiFi.mode(WIFI_STA);
+
+    // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  esp_now_register_send_cb(OnDataSent);
+  
+  // Register peer
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  //peerInfo.channel = 1;  
+  peerInfo.encrypt = false;
+  
+  // Add peer        
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer");
+    return;
+  }
+
     pinMode(INT_PIN, INPUT);     
     pinMode(15,OUTPUT);
     pinMode(2,OUTPUT);
@@ -182,8 +251,18 @@ void setup(void)
     }
 #endif
 }
+int prev_people_nr = -1;
+
 void loop(void)
 {
+    if(peopleData.peopleNr != prev_people_nr){
+        prev_people_nr = peopleData.peopleNr;
+        esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &peopleData, sizeof(peopleData));
+    
+        if(error_count > 5){
+        ESP.restart(); // Restart if failed to send data 5 times (to match channel)
+        }
+    }
     if (INT_PIN == 0 || _gotInterrupt) {
 
         _gotInterrupt = false;
@@ -198,14 +277,14 @@ void loop(void)
         // PEOPLE DETECION
         // Entry/Exit detection
         if(zone_trig[entry_zone] == 0 && zone_trig[exit_zone] == 1 && entry_set) { // Entry complete
-            people_nr++;
+            peopleData.peopleNr++;
             entry_set = 0;
             exit_set = 1;
         }
         else if(zone_trig[entry_zone] == 0 && zone_trig[exit_zone] == 1) exit_set = 1; // Exit set
 
-        if(zone_trig[entry_zone] == 1 && zone_trig[exit_zone] == 0 && exit_set && people_nr>0){ // Exit complete
-            people_nr--;
+        if(zone_trig[entry_zone] == 1 && zone_trig[exit_zone] == 0 && exit_set && peopleData.peopleNr>0){ // Exit complete
+            peopleData.peopleNr--;
             entry_set = 1;
             exit_set = 0;
         }
@@ -216,9 +295,9 @@ void loop(void)
             exit_set = 0;
         }
 #ifndef MINIMAL_PRINT
-        printf("Number of people: %d \n",people_nr);
+        printf("Number of people: %d \n",peopleData.peopleNr);
 #endif
-        if(people_nr > 0){
+        if(peopleData.peopleNr > 0){
             digitalWrite(15,HIGH);
         }
         else digitalWrite(15,LOW);
